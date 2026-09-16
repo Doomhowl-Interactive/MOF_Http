@@ -1,0 +1,9 @@
+/MOFBinary/
+**/bin/
+**/obj/
+**/TestResults/
+.vs/
+*.user
+*.suo
+/artifacts/
+/betray_stdout.txt

@@ -1,0 +1,329 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Ministry of Flat HTTP Gateway",
+    "description": "For private use only. Upload an OBJ and receive its UV-unwrapped OBJ in the same HTTP response. Numeric form fields use invariant notation (a dot for decimals).",
+    "version": "v1"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Mof.Http"
+        ],
+        "summary": "Check gateway readiness.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/unwrap": {
+      "post": {
+        "tags": [
+          "Unwrap"
+        ],
+        "summary": "Generate UV coordinates for an uploaded OBJ.",
+        "description": "Send multipart/form-data with File and optional settings. The response contains the unwrapped OBJ as an attachment. Processing completes within this request; no jobs or polling are used.",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "File"
+                ],
+                "type": "object",
+                "properties": {
+                  "File": {
+                    "type": "string",
+                    "description": "Nonempty Wavefront OBJ mesh (.obj).",
+                    "format": "binary"
+                  },
+                  "Resolution": {
+                    "maximum": 65536,
+                    "minimum": 1,
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "description": "Texture resolution used to calculate island gaps, in pixels.",
+                    "format": "int32",
+                    "default": 1024
+                  },
+                  "Separate": {
+                    "type": "boolean",
+                    "description": "Separate all hard edges, useful for lightmaps and normal maps.",
+                    "default": false
+                  },
+                  "Aspect": {
+                    "maximum": 1000000,
+                    "minimum": 0.000001,
+                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+                    "type": [
+                      "number",
+                      "string"
+                    ],
+                    "description": "Pixel aspect ratio for non-square textures.",
+                    "format": "double",
+                    "default": 1
+                  },
+                  "Normals": {
+                    "type": "boolean",
+                    "description": "Use mesh normals to classify polygons.",
+                    "default": false
+                  },
+                  "Udims": {
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "description": "Number of UDIM tiles.",
+                    "format": "int32",
+                    "default": 1
+                  },
+                  "Overlap": {
+                    "type": "boolean",
+                    "description": "Allow identical parts to share UV space.",
+                    "default": false
+                  },
+                  "Mirror": {
+                    "type": "boolean",
+                    "description": "Allow mirrored parts to share UV space.",
+                    "default": false
+                  },
+                  "WorldScale": {
+                    "type": "boolean",
+                    "description": "Scale UVs to world space, possibly beyond the zero-to-one range.",
+                    "default": false
+                  },
+                  "Density": {
+                    "maximum": 1000000,
+                    "minimum": 1,
+                    "pattern": "^-?(?:0|[1-9]\\d*)$",
+                    "type": [
+                      "integer",
+                      "string"
+                    ],
+                    "description": "Pixels per world unit when WorldScale is enabled.",
+                    "format": "int32",
+                    "default": 1024
+                  },
+                  "CenterX": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+                    "type": [
+                      "number",
+                      "string"
+                    ],
+                    "description": "X coordinate of the point toward which seams are directed.",
+                    "format": "double",
+                    "default": 0
+                  },
+                  "CenterY": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+                    "type": [
+                      "number",
+                      "string"
+                    ],
+                    "description": "Y coordinate of the point toward which seams are directed.",
+                    "format": "double",
+                    "default": 0
+                  },
+                  "CenterZ": {
+                    "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+                    "type": [
+                      "number",
+                      "string"
+                    ],
+                    "description": "Z coordinate of the point toward which seams are directed.",
+                    "format": "double",
+                    "default": 0
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway Timeout",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "IFormFile": {
+        "type": "string",
+        "format": "binary"
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ValidationProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Mof.Http"
+    },
+    {
+      "name": "Unwrap"
+    }
+  ]
+}
