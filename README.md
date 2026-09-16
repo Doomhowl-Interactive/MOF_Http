@@ -60,6 +60,22 @@ Verified on Docker Desktop's Linux/amd64 engine with Wine 9.0 on September 17, 2
 
 API documentation is generated from ASP.NET Core: build with `dotnet build Mof.Http.slnx` to produce `openapi.json`, or read `/openapi/v1.json` on the running server. Settings are in `appsettings.json` and can be overridden with .NET configuration environment variables such as `MinistryOfFlat__TimeoutSeconds`.
 
+## Password protection (optional)
+
+Set `ApiPassword` to require a password for the web UI, Swagger UI, OpenAPI document, and API. When it is empty or unset, everything stays openly accessible. Only `/health` remains open (it reports binary presence for container health checks and exposes no data).
+
+```powershell
+$env:ApiPassword = "a-long-random-password"
+dotnet run --project Mof.Http.csproj
+```
+
+```sh
+curl --fail -u "user:a-long-random-password" -F "File=@mesh.obj" http://localhost:5000/api/unwrap -o unwrapped.obj
+curl --fail -H "X-API-Key: a-long-random-password" -F "File=@mesh.obj" http://localhost:5000/api/unwrap -o unwrapped.obj
+```
+
+In Compose, uncomment the `ApiPassword` line, preferably sourcing the value from a local `.env` file or Docker secrets rather than committing it. Browsers show a sign-in prompt for the UI; API clients can use HTTP Basic (any username), `Authorization: Bearer <password>`, or the `X-API-Key` header. Swagger UI offers the same choices via its Authorize button. Use a long random password and serve the gateway over HTTPS (for example behind a reverse proxy) so the password is not sent in cleartext.
+
 Run `dotnet test Mof.Http.slnx` for automated tests. On Windows, integration tests use the real executable and download it if missing. Set `MOF_TEST_DOWNLOAD=1` to also test a fresh download from the official server into an isolated temporary directory.
 
 The gateway source code is licensed under the [GNU General Public License version 3 (GPL-3.0-only)](LICENSE). The private-use description above states the project's intended use and does not impose additional restrictions on the rights granted by the GPL.

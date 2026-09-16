@@ -9,6 +9,8 @@ services:
     environment:
       MinistryOfFlat__TimeoutSeconds: "120"
       MinistryOfFlat__MaxConcurrentProcesses: "2"
+      # Uncomment to password-protect the UI and API. Prefer a local .env file or Docker secrets for the value.
+      # ApiPassword: "change-me"
     restart: unless-stopped
     stop_grace_period: 30s
 

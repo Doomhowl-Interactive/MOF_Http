@@ -10,16 +10,19 @@ public sealed class MofSettings
     public long MaxOutputBytes { get; set; } = 200 * 1024 * 1024;
     public int MaxConcurrentProcesses { get; set; } = 2;
     public string TempDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "Mof.Http");
+    /// <summary>Optional shared password protecting the UI and API. Null or empty disables authentication.</summary>
+    public string? ApiPassword { get; set; }
 
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(BinaryDirectory) || string.IsNullOrWhiteSpace(TempDirectory)
             || (WineExecutable is not null && string.IsNullOrWhiteSpace(WineExecutable))
             || (OperatingSystem.IsLinux() && WineExecutable is null)
+            || (!string.IsNullOrEmpty(ApiPassword) && (string.IsNullOrWhiteSpace(ApiPassword) || ApiPassword.Length > 256))
             || !Uri.TryCreate(DownloadUrl, UriKind.Absolute, out var uri) || uri.Scheme != "https"
             || !double.IsFinite(TimeoutSeconds) || TimeoutSeconds <= 0 || TimeoutSeconds > 86400
             || MaxUploadBytes <= 0 || MaxUploadBytes > int.MaxValue - 65536
             || MaxOutputBytes <= 0 || MaxOutputBytes > int.MaxValue || MaxConcurrentProcesses < 1)
-            throw new InvalidOperationException("Invalid MinistryOfFlat settings: use HTTPS, nonempty directories, positive limits, and a timeout of at most 86400 seconds.");
+            throw new InvalidOperationException("Invalid MinistryOfFlat settings: use HTTPS, nonempty directories, positive limits, a timeout of at most 86400 seconds, and a non-blank API password of at most 256 characters.");
     }
 }

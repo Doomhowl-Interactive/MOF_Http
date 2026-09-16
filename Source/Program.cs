@@ -6,7 +6,11 @@ using Mof.Http;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(services =>
 {
-    var settings = services.GetRequiredService<IConfiguration>().GetSection("MinistryOfFlat").Get<MofSettings>() ?? new();
+    var configuration = services.GetRequiredService<IConfiguration>();
+    var settings = configuration.GetSection("MinistryOfFlat").Get<MofSettings>() ?? new();
+    // The password lives in the root ApiPassword key (the ApiPassword environment variable),
+    // falling back to MinistryOfFlat:ApiPassword when the root key is unset.
+    settings.ApiPassword = configuration["ApiPassword"] ?? settings.ApiPassword;
     settings.Validate();
     return settings;
 });
@@ -23,6 +27,7 @@ builder.Services.AddSingleton<Unwrapper>();
 builder.Services.AddMofOpenApi();
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseMofPasswordAuth();
 app.UseRequestLocalization(new RequestLocalizationOptions
 {
     DefaultRequestCulture = new RequestCulture(CultureInfo.InvariantCulture),

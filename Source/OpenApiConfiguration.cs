@@ -23,6 +23,9 @@ internal static class OpenApiConfiguration
                 schema.Properties!["File"] = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary", Description = "Nonempty Wavefront OBJ mesh (.obj)." };
                 if (schema is OpenApiSchema formSchema) formSchema.Required = new HashSet<string> { "File" };
                 operation.Responses!["200"].Content!["application/octet-stream"].Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" };
+                var settings = context.ApplicationServices.GetRequiredService<MofSettings>();
+                if (!string.IsNullOrEmpty(settings.ApiPassword))
+                    operation.Responses["401"] = new OpenApiResponse { Description = "Missing or incorrect API password." };
                 return Task.CompletedTask;
             });
             options.AddSchemaTransformer((schema, context, _) =>
@@ -34,11 +37,39 @@ internal static class OpenApiConfiguration
                     schema.Default = System.Text.Json.JsonSerializer.SerializeToNode(defaultValue.Value);
                 return Task.CompletedTask;
             });
-            options.AddDocumentTransformer((document, _, _) =>
+            options.AddDocumentTransformer((document, context, _) =>
             {
                 document.Info.Title = "Ministry of Flat HTTP Gateway";
                 document.Info.Version = "v1";
                 document.Info.Description = "For private use only. Upload an OBJ and receive its UV-unwrapped OBJ in the same HTTP response. Numeric form fields use invariant notation (a dot for decimals).";
+                var settings = context.ApplicationServices.GetRequiredService<MofSettings>();
+                if (string.IsNullOrEmpty(settings.ApiPassword)) return Task.CompletedTask;
+                document.AddComponent("basic", new OpenApiSecurityScheme
+                {
+                    Type = SecuritySchemeType.Http,
+                    Scheme = "basic",
+                    Description = "The shared API password (username is ignored)."
+                });
+                document.AddComponent("bearer", new OpenApiSecurityScheme
+                {
+                    Type = SecuritySchemeType.Http,
+                    Scheme = "bearer",
+                    Description = "The shared API password as a bearer token."
+                });
+                document.AddComponent("apiKey", new OpenApiSecurityScheme
+                {
+                    Type = SecuritySchemeType.ApiKey,
+                    Name = "X-API-Key",
+                    In = ParameterLocation.Header,
+                    Description = "The shared API password in the X-API-Key header."
+                });
+                document.Security ??= [];
+                document.Security.Add(new OpenApiSecurityRequirement
+                {
+                    [new OpenApiSecuritySchemeReference("basic", document)] = [],
+                    [new OpenApiSecuritySchemeReference("bearer", document)] = [],
+                    [new OpenApiSecuritySchemeReference("apiKey", document)] = []
+                });
                 return Task.CompletedTask;
             });
         });
