@@ -28,6 +28,8 @@ app.UseRequestLocalization(new RequestLocalizationOptions
     DefaultRequestCulture = new RequestCulture(CultureInfo.InvariantCulture),
     RequestCultureProviders = []
 });
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.MapControllers();
 app.MapOpenApi();
 app.MapGet("/health", (BinaryInstaller installer) => Results.Ok(new { status = File.Exists(installer.ExecutablePath) ? "ready" : "unavailable" }))

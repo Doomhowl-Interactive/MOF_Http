@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ministry of Flat</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        body {
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 15% 10%, rgba(13, 202, 240, .14), transparent 28rem),
+                linear-gradient(145deg, #111820, #080b0f 70%);
+        }
+
+        .upload-card {
+            max-width: 720px;
+            border-color: rgba(255, 255, 255, .1);
+            background: rgba(24, 31, 40, .9);
+            color: #f8f9fa;
+            box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, .35);
+        }
+
+        .drop-zone {
+            min-height: 260px;
+            border: 2px dashed #526170;
+            background: rgba(8, 11, 15, .45);
+            cursor: pointer;
+            transition: border-color .15s ease, background-color .15s ease, transform .15s ease;
+        }
+
+        .drop-zone:hover,
+        .drop-zone:focus-visible,
+        .drop-zone.is-dragging {
+            border-color: #0dcaf0;
+            background: rgba(13, 202, 240, .08);
+            outline: none;
+            transform: translateY(-2px);
+        }
+
+        .obj-mark {
+            width: 4.5rem;
+            height: 4.5rem;
+            border: 1px solid rgba(13, 202, 240, .45);
+            background: rgba(13, 202, 240, .1);
+            color: #67e8f9;
+            letter-spacing: .08em;
+        }
+    </style>
+</head>
+<body class="text-light">
+    <main class="container d-flex align-items-center justify-content-center py-5 min-vh-100">
+        <section class="upload-card card rounded-4 w-100">
+            <div class="card-body p-4 p-md-5">
+                <div class="mb-4">
+                    <h1 class="display-6 fw-semibold mb-2">Unwrap an OBJ mesh</h1>
+                    <p class="text-secondary mb-0">Drop a Wavefront OBJ below and download a copy with generated UV coordinates.</p>
+                </div>
+
+                <form id="unwrap-form" novalidate>
+                    <label id="drop-zone" class="drop-zone rounded-4 d-flex flex-column align-items-center justify-content-center text-center p-4 mb-3" for="file-input" tabindex="0">
+                        <span class="obj-mark rounded-3 d-inline-flex align-items-center justify-content-center fw-bold mb-3">OBJ</span>
+                        <span class="fs-5 fw-medium">Drop your mesh here</span>
+                        <span class="text-secondary mt-1">or click to choose a file</span>
+                        <span id="file-details" class="small text-info mt-3" hidden></span>
+                    </label>
+                    <input id="file-input" class="visually-hidden" type="file" accept=".obj" required>
+
+                    <div id="status" class="alert mb-3" role="status" aria-live="polite" hidden></div>
+
+                    <button id="submit-button" class="btn btn-info btn-lg w-100 fw-semibold" type="submit" disabled>
+                        Unwrap mesh
+                    </button>
+                </form>
+            </div>
+            <div class="card-footer border-secondary-subtle bg-transparent px-4 px-md-5 py-3 text-secondary small d-flex justify-content-between gap-3">
+                <span>Default unwrap settings</span>
+                <a class="link-secondary" href="/openapi/v1.json">API specification</a>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const form = document.querySelector("#unwrap-form");
+        const dropZone = document.querySelector("#drop-zone");
+        const fileInput = document.querySelector("#file-input");
+        const fileDetails = document.querySelector("#file-details");
+        const status = document.querySelector("#status");
+        const submitButton = document.querySelector("#submit-button");
+        let selectedFile = null;
+
+        function showStatus(message, kind) {
+            status.textContent = message;
+            status.className = `alert alert-${kind} mb-3`;
+            status.hidden = false;
+        }
+
+        function selectFile(file) {
+            if (!file || file.size === 0 || !file.name.toLowerCase().endsWith(".obj")) {
+                selectedFile = null;
+                fileDetails.hidden = true;
+                submitButton.disabled = true;
+                showStatus("Choose a nonempty .obj file.", "danger");
+                return;
+            }
+
+            selectedFile = file;
+            fileDetails.textContent = `${file.name} (${formatBytes(file.size)})`;
+            fileDetails.hidden = false;
+            submitButton.disabled = false;
+            status.hidden = true;
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return `${bytes} bytes`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
+
+        async function readError(response) {
+            try {
+                const problem = await response.json();
+                if (problem.errors) return Object.values(problem.errors).flat().join(" ");
+                return problem.detail || problem.title || `Request failed (${response.status}).`;
+            } catch {
+                return `Request failed (${response.status}).`;
+            }
+        }
+
+        fileInput.addEventListener("change", () => selectFile(fileInput.files[0]));
+
+        for (const eventName of ["dragenter", "dragover"]) {
+            dropZone.addEventListener(eventName, event => {
+                event.preventDefault();
+                dropZone.classList.add("is-dragging");
+            });
+        }
+
+        for (const eventName of ["dragleave", "drop"]) {
+            dropZone.addEventListener(eventName, event => {
+                event.preventDefault();
+                dropZone.classList.remove("is-dragging");
+            });
+        }
+
+        dropZone.addEventListener("drop", event => selectFile(event.dataTransfer.files[0]));
+        dropZone.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                fileInput.click();
+            }
+        });
+
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            if (!selectedFile) return;
+
+            const data = new FormData();
+            data.append("File", selectedFile, selectedFile.name);
+            submitButton.disabled = true;
+            submitButton.textContent = "Unwrapping...";
+            showStatus("Uploading and generating UV coordinates. This may take a moment.", "info");
+
+            try {
+                const response = await fetch("/api/unwrap", { method: "POST", body: data });
+                if (!response.ok) throw new Error(await readError(response));
+
+                const output = await response.blob();
+                const url = URL.createObjectURL(output);
+                const download = document.createElement("a");
+                const baseName = selectedFile.name.replace(/\.obj$/i, "");
+                download.href = url;
+                download.download = `${baseName}-unwrapped.obj`;
+                download.click();
+                URL.revokeObjectURL(url);
+                showStatus("Unwrap complete. Your OBJ download has started.", "success");
+            } catch (error) {
+                showStatus(error.message || "The mesh could not be unwrapped.", "danger");
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = "Unwrap mesh";
+            }
+        });
+    </script>
+</body>
+</html>

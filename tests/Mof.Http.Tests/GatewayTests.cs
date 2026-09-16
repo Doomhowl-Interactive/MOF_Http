@@ -62,6 +62,16 @@ public sealed class GatewayTests
         Assert.Contains("ready", await client.GetStringAsync("/health"));
     }
 
+    [WindowsFact]
+    public async Task IndexPageProvidesObjDropZone()
+    {
+        using var factory = new GatewayFactory();
+        using var client = factory.CreateClient();
+        var page = await client.GetStringAsync("/");
+        Assert.Contains("id=\"drop-zone\"", page);
+        Assert.Contains("fetch(\"/api/unwrap\"", page);
+    }
+
     [Theory]
     [InlineData("bad.txt", "Resolution", "512")]
     [InlineData("cube.obj", "Resolution", "0")]
