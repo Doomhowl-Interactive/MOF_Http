@@ -11,8 +11,8 @@ public sealed class BinaryInstaller(MofSettings settings, IHostEnvironment envir
 
     public async Task EnsureInstalledAsync(CancellationToken cancellationToken)
     {
-        if (!OperatingSystem.IsWindows())
-            throw new PlatformNotSupportedException("Ministry of Flat requires Windows.");
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+            throw new PlatformNotSupportedException("Ministry of Flat requires Windows or Linux with Wine.");
         await gate.WaitAsync(cancellationToken);
         try
         {

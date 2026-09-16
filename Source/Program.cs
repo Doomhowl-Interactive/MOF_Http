@@ -30,6 +30,11 @@ app.UseRequestLocalization(new RequestLocalizationOptions
 });
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("../openapi/v1.json", "Ministry of Flat API v1");
+    options.DocumentTitle = "Ministry of Flat API";
+});
 app.MapControllers();
 app.MapOpenApi();
 app.MapGet("/health", (BinaryInstaller installer) => Results.Ok(new { status = File.Exists(installer.ExecutablePath) ? "ready" : "unavailable" }))

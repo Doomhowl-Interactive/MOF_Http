@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.git/
+.vs/
+.opencode/
+MOFBinary/
+artifacts/
+tests/
+**/*.user
+**/*.suo

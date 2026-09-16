@@ -19,5 +19,6 @@
     <Content Remove="tests/**;MOFBinary/**;artifacts/**" />
     <None Remove="tests/**;MOFBinary/**;artifacts/**" />
     <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
   </ItemGroup>
 </Project>

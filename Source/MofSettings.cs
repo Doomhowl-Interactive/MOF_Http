@@ -3,6 +3,7 @@ namespace Mof.Http;
 public sealed class MofSettings
 {
     public string BinaryDirectory { get; set; } = "MOFBinary";
+    public string? WineExecutable { get; set; } = OperatingSystem.IsLinux() ? "wine" : null;
     public string DownloadUrl { get; set; } = "https://www.quelsolaar.com/MinistryOfFlat_Release.zip";
     public double TimeoutSeconds { get; set; } = 120;
     public long MaxUploadBytes { get; set; } = 100 * 1024 * 1024;
@@ -13,6 +14,8 @@ public sealed class MofSettings
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(BinaryDirectory) || string.IsNullOrWhiteSpace(TempDirectory)
+            || (WineExecutable is not null && string.IsNullOrWhiteSpace(WineExecutable))
+            || (OperatingSystem.IsLinux() && WineExecutable is null)
             || !Uri.TryCreate(DownloadUrl, UriKind.Absolute, out var uri) || uri.Scheme != "https"
             || !double.IsFinite(TimeoutSeconds) || TimeoutSeconds <= 0 || TimeoutSeconds > 86400
             || MaxUploadBytes <= 0 || MaxUploadBytes > int.MaxValue - 65536

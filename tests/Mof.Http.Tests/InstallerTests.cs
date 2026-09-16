@@ -33,7 +33,7 @@ public sealed class InstallerTests
         Assert.Equal(0, handler.Calls);
     }
 
-    [WindowsFact]
+    [Fact]
     public async Task ConcurrentInstallRequestsDownloadOnlyOnceAndCopyCompanions()
     {
         using var sandbox = new Sandbox();
@@ -48,7 +48,7 @@ public sealed class InstallerTests
         Assert.Empty(Directory.GetDirectories(installer.DirectoryPath));
     }
 
-    [WindowsFact]
+    [Fact]
     public async Task HttpFailureLeavesNoInstalledBinaryAndCanBeRetried()
     {
         using var sandbox = new Sandbox();
@@ -64,7 +64,7 @@ public sealed class InstallerTests
         Assert.True(File.Exists(installer.ExecutablePath));
     }
 
-    [WindowsFact]
+    [Fact]
     public async Task InvalidArchivesLeaveNoInstalledBinary()
     {
         foreach (var bytes in new[] { new byte[] { 1, 2, 3 }, Archive(("readme.txt", "no executable")), Archive(("UnWrapConsole3.exe", "")), Archive(("../escaped.exe", "bad"), ("UnWrapConsole3.exe", "fixture")) })

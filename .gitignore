@@ -7,3 +7,4 @@
 *.suo
 /artifacts/
 /betray_stdout.txt
+__pycache__/

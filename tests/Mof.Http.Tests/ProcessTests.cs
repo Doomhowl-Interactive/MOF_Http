@@ -8,6 +8,25 @@ namespace Mof.Http.Tests;
 
 public sealed class ProcessTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("/usr/bin/wine")]
+    public void LauncherPreservesExecutableAndUsesPortableMeshPaths(string? wine)
+    {
+        var settings = new MofSettings { WineExecutable = wine };
+        const string executable = "/binary with spaces/UnWrapConsole3.exe";
+        const string directory = "/requests with spaces/job";
+        var request = new UnwrapRequest { Aspect = 1.5, Separate = true };
+        var start = MofProcess.CreateStartInfo(settings, executable, directory, request);
+        Assert.Equal(wine ?? executable, start.FileName);
+        Assert.Equal(directory, start.WorkingDirectory);
+        Assert.False(start.UseShellExecute);
+        Assert.True(start.RedirectStandardOutput);
+        Assert.True(start.RedirectStandardError);
+        var expected = request.Arguments("input.obj", "output.obj");
+        Assert.Equal(wine is null ? expected : new[] { executable }.Concat(expected), start.ArgumentList);
+    }
+
     [Fact]
     public void ArgumentsAreInvariantAndKeepPathsAsIndividualArguments()
     {

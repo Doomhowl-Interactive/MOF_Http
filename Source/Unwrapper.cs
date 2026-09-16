@@ -23,12 +23,7 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
             await using (var target = File.Create(input))
                 await LimitedCopy.CopyAsync(source, target, settings.MaxUploadBytes, cancellationToken);
 
-            var start = new ProcessStartInfo(installer.ExecutablePath)
-            {
-                WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true
-            };
-            foreach (var argument in request.Arguments(input, output)) start.ArgumentList.Add(argument);
+            var start = MofProcess.CreateStartInfo(settings, installer.ExecutablePath, directory, request);
             using var process = new Process { StartInfo = start };
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds));
