@@ -10,4 +10,6 @@ API documentation is generated from ASP.NET Core: build with `dotnet build Mof.H
 
 Run `dotnet test Mof.Http.slnx` for automated tests. On Windows, integration tests use the real executable and download it if missing. Set `MOF_TEST_DOWNLOAD=1` to also test a fresh download from the official server into an isolated temporary directory.
 
-Ministry of Flat is third-party software and remains subject to its publisher's license terms.
+The gateway source code is licensed under the [GNU General Public License version 3 (GPL-3.0-only)](LICENSE). The private-use description above states the project's intended use and does not impose additional restrictions on the rights granted by the GPL.
+
+Ministry of Flat is third-party software and remains subject to its publisher's license terms. The gateway's GPL license does not apply to the Ministry of Flat executable.
