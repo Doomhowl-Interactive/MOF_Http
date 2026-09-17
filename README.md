@@ -15,7 +15,7 @@ docker compose up --build -d
 docker compose logs -f mof
 ```
 
-Open `http://localhost:5000`, with interactive Swagger UI documentation at `/swagger/` and the raw specification at `/openapi/v1.json`. Compose binds the port to the host loopback interface. First startup initializes a Wine prefix and downloads MOF over HTTPS; allow several minutes. The `mof-binaries` named volume retains the download across container replacement. `docker compose down` preserves it; `docker compose down -v` removes it. The Wine prefix is container-local and recreated when the container is replaced.
+Open `http://localhost:5000`, with interactive Swagger UI documentation at `/swagger/` and the raw specification at `/openapi/v1.json`. Compose binds the port to the host loopback interface. First startup initializes a Wine prefix and downloads MOF over HTTPS; allow several minutes. If the download fails, the gateway still starts (`/health` reports `unavailable`, unwrap returns `503`) and retries on the next request. The `mof-binaries` named volume retains the download across container replacement. `docker compose down` preserves it; `docker compose down -v` removes it. The Wine prefix is container-local and recreated when the container is replaced. Wine is pinned to the verified 9.0 release in the Dockerfile and the entrypoint refuses other major versions; re-verify with real meshes before bumping it. The service is capped at 4 GB of memory so concurrent unwraps degrade to `503`/`504` instead of exhausting the host.
 
 If port 5000 is occupied, set `MOF_HTTP_PORT` before starting Compose (or in a local `.env` file). For example, in PowerShell:
 
@@ -58,7 +58,7 @@ Verified on Docker Desktop's Linux/amd64 engine with Wine 9.0 on September 17, 2
 - **Windows containers:** avoid Wine and run the existing executable natively, but require a compatible Windows container host and a much larger Windows Server Core ASP.NET image. Consider this if Wine fails your real-mesh tests.
 - **Windows worker/VM:** keep MOF on a Windows host and deploy the gateway there, or introduce a remote job worker for a Linux-hosted API. A worker split needs additional queue/RPC and file-transfer implementation, but can be a better fit for existing Windows infrastructure.
 
-API documentation is generated from ASP.NET Core: build with `dotnet build Mof.Http.slnx` to produce `openapi.json`, or read `/openapi/v1.json` on the running server. Settings are in `appsettings.json` and can be overridden with .NET configuration environment variables such as `MinistryOfFlat__TimeoutSeconds`.
+API documentation is generated from ASP.NET Core: build with `dotnet build Mof.Http.slnx` to produce `openapi.json`, or read `/openapi/v1.json` on the running server. Settings are in `appsettings.json` and can be overridden with .NET configuration environment variables such as `MinistryOfFlat__TimeoutSeconds`. `MinistryOfFlat__ExpectedSha256` optionally pins the SHA-256 (hex) of `UnWrapConsole3.exe` and rejects releases that do not match. `MinistryOfFlat__MaxConcurrentProcesses` accepts at most 32.
 
 ## Password protection (optional)
 
@@ -74,7 +74,7 @@ curl --fail -u "user:a-long-random-password" -F "File=@mesh.obj" http://localhos
 curl --fail -H "X-API-Key: a-long-random-password" -F "File=@mesh.obj" http://localhost:5000/api/unwrap -o unwrapped.obj
 ```
 
-In Compose, uncomment the `ApiPassword` line, preferably sourcing the value from a local `.env` file or Docker secrets rather than committing it. Browsers show a sign-in prompt for the UI; API clients can use HTTP Basic (any username), `Authorization: Bearer <password>`, or the `X-API-Key` header. Swagger UI offers the same choices via its Authorize button. Use a long random password and serve the gateway over HTTPS (for example behind a reverse proxy) so the password is not sent in cleartext.
+In Compose, uncomment the `ApiPassword` line, preferably sourcing the value from a local `.env` file or Docker secrets rather than committing it. Browsers show a sign-in prompt for the UI; API clients can use HTTP Basic (any username), `Authorization: Bearer <password>`, or the `X-API-Key` header. Swagger UI offers the same choices via its Authorize button. Use a long random password and serve the gateway over HTTPS (for example behind a reverse proxy) so the password is not sent in cleartext. Repeated wrong passwords from one client IP are throttled: after 20 failures within 5 minutes the gateway returns `429` with a `Retry-After` header for 1 minute.
 
 Run `dotnet test Mof.Http.slnx` for automated tests. On Windows, integration tests use the real executable and download it if missing. Set `MOF_TEST_DOWNLOAD=1` to also test a fresh download from the official server into an isolated temporary directory.
 

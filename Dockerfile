@@ -7,10 +7,13 @@ RUN dotnet publish Mof.Http.csproj -c Release --no-restore -o /out /p:UseAppHost
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 # MOF is a Windows x86/x64 program. Compose pins this image to linux/amd64.
+# Wine is pinned to the verified 9.0 release; bump WINE_VERSION deliberately and
+# re-verify with real production meshes (see README) before changing it.
+ARG WINE_VERSION=9.0~repack-4build3
 USER root
 RUN dpkg --add-architecture i386 \
     && apt-get update \
-    && apt-get install -y --no-install-recommends wine wine64 wine32:i386 curl tini \
+    && apt-get install -y --no-install-recommends wine=${WINE_VERSION} wine64=${WINE_VERSION} "wine32:i386=${WINE_VERSION}" curl tini \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out/ ./

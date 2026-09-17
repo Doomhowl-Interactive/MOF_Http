@@ -13,6 +13,9 @@ services:
       # ApiPassword: "change-me"
     restart: unless-stopped
     stop_grace_period: 30s
+    # Each unwrap slot can hold a Wine process plus a large mesh in flight; cap memory
+    # so concurrent requests degrade to 503/504 instead of OOM-killing the host.
+    mem_limit: 4g
 
 volumes:
   mof-binaries:
