@@ -107,21 +107,30 @@ public static class ApiPassword
                 return;
             }
 
-            if (IsBrowserNavigation(context.Request))
-            {
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.SendFileAsync(
-                    Path.Combine(context.RequestServices.GetRequiredService<IWebHostEnvironment>().WebRootPath, "login.html"),
-                    context.RequestAborted);
-                return;
-            }
-
             // The login form handles its own failure response so fetch() never receives
             // a Basic challenge that could trigger the browser's native password dialog.
             if (context.Request.Method.Equals(HttpMethods.Post, StringComparison.OrdinalIgnoreCase)
                 && context.Request.Path.Equals("/login", StringComparison.OrdinalIgnoreCase))
             {
                 await next();
+                return;
+            }
+
+            // The login screen's own dependencies must load without credentials.
+            // They previously challenged with Basic, so merely opening the login page
+            // popped the browser's native sign-in dialog over the custom form.
+            if (IsAnonymousAsset(context.Request))
+            {
+                await next();
+                return;
+            }
+
+            if (IsBrowserDocumentRequest(context.Request))
+            {
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.SendFileAsync(
+                    Path.Combine(context.RequestServices.GetRequiredService<IWebHostEnvironment>().WebRootPath, "login.html"),
+                    context.RequestAborted);
                 return;
             }
 
@@ -177,12 +186,31 @@ public static class ApiPassword
 
     internal static string ClientKey(HttpContext context) => context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-    private static bool IsBrowserNavigation(HttpRequest request)
+    private static bool IsAnonymousAsset(HttpRequest request)
     {
         if (!request.Method.Equals(HttpMethods.Get, StringComparison.OrdinalIgnoreCase)
-            || (!request.Path.Equals("/", StringComparison.OrdinalIgnoreCase)
-                && !request.Path.Equals("/index.html", StringComparison.OrdinalIgnoreCase))) return false;
-        return request.Headers["Accept"].ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase);
+            && !request.Method.Equals(HttpMethods.Head, StringComparison.OrdinalIgnoreCase)) return false;
+        if (request.Path.Equals("/login.html", StringComparison.OrdinalIgnoreCase)
+            || request.Path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase)) return true;
+        return request.Path.StartsWithSegments("/lib", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool AcceptsHtml(HttpRequest request) =>
+        request.Headers["Accept"].ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsApiPath(HttpRequest request) =>
+        request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase)
+        || request.Path.StartsWithSegments("/openapi", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsBrowserDocumentRequest(HttpRequest request)
+    {
+        if (!request.Method.Equals(HttpMethods.Get, StringComparison.OrdinalIgnoreCase)
+            && !request.Method.Equals(HttpMethods.Head, StringComparison.OrdinalIgnoreCase)) return false;
+        // API and OpenAPI callers always get JSON so tooling keeps working; every other
+        // document navigation (/, /index.html, /swagger, deep links) gets the in-app
+        // login screen instead of a Basic challenge that pops the native dialog.
+        if (IsApiPath(request)) return false;
+        return AcceptsHtml(request);
     }
 
     private static bool Matches(string? candidate, byte[] expected)
@@ -233,7 +261,12 @@ public sealed class CombinedAuthenticationHandler(
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)
     {
         Response.StatusCode = StatusCodes.Status401Unauthorized;
-        Response.Headers.WWWAuthenticate = "Basic realm=\"MOF\", charset=\"UTF-8\"";
+        // Browsers pop a native sign-in dialog for any 401 carrying a Basic challenge,
+        // including subresources of the custom login page (its CSS, favicon, ...).
+        // API clients send credentials preemptively and parse the JSON body, so only
+        // advertise the Basic scheme where the caller is not expecting an HTML document.
+        if (!ApiPassword.AcceptsHtml(Request))
+            Response.Headers.WWWAuthenticate = "Basic realm=\"MOF\", charset=\"UTF-8\"";
         return Response.WriteAsJsonAsync(
             new { title = "A password is required to use this service.", status = 401 },
             cancellationToken: Context.RequestAborted);
