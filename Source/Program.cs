@@ -44,6 +44,7 @@ builder.Services.AddProblemDetails(options =>
     };
 });
 builder.Services.AddSingleton<AuthAttemptTracker>();
+builder.Services.AddSingleton<AuthSessionStore>();
 builder.Services.AddHttpClient("download", client => client.Timeout = TimeSpan.FromMinutes(5));
 builder.Services.AddSingleton<BinaryInstaller>();
 builder.Services.AddHostedService<BinaryStartup>();
@@ -64,6 +65,39 @@ app.UseSwaggerUI(options =>
     options.SwaggerEndpoint("../openapi/v1.json", "Ministry of Flat API v1");
     options.DocumentTitle = "Ministry of Flat API";
 });
+app.MapPost("/login", (LoginRequest login, HttpContext context, MofSettings settings, AuthAttemptTracker tracker, AuthSessionStore sessions) =>
+{
+    if (string.IsNullOrEmpty(settings.ApiPassword)) return Results.NotFound();
+
+    var client = ApiPassword.ClientKey(context);
+    if (tracker.IsBlocked(client, out var retryAfter))
+    {
+        context.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+        return Results.Json(new { title = "Too many password attempts. Retry later.", status = 429 }, statusCode: StatusCodes.Status429TooManyRequests);
+    }
+
+    if (!ApiPassword.MatchesPassword(login.Password, settings.ApiPassword))
+    {
+        tracker.NoteFailure(client);
+        if (tracker.IsBlocked(client, out retryAfter))
+        {
+            context.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+            return Results.Json(new { title = "Too many password attempts. Retry later.", status = 429 }, statusCode: StatusCodes.Status429TooManyRequests);
+        }
+        return Results.Json(new { title = "The password was not accepted.", status = 401 }, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    tracker.NoteSuccess(client);
+    context.Response.Cookies.Append(ApiPassword.SessionCookieName, sessions.Create(ApiPassword.SessionLifetime), new CookieOptions
+    {
+        HttpOnly = true,
+        Secure = context.Request.IsHttps,
+        SameSite = SameSiteMode.Strict,
+        Path = "/",
+        MaxAge = ApiPassword.SessionLifetime
+    });
+    return Results.Ok(new { redirect = "/" });
+}).ExcludeFromDescription();
 app.MapControllers();
 app.MapOpenApi();
 app.MapGet("/health", (BinaryInstaller installer) => Results.Ok(new { status = File.Exists(installer.ExecutablePath) ? "ready" : "unavailable" }))

@@ -43,6 +43,40 @@ public sealed class AuthTests
         Assert.Contains("password", error, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task BrowserNavigationReceivesInAppLoginScreen()
+    {
+        using var factory = Protected();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+
+        using var response = await client.GetAsync("/");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(response.Headers, header => header.Key.Equals("WWW-Authenticate", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("Welcome back", html);
+        Assert.Contains("/login", html);
+    }
+
+    [Fact]
+    public async Task BrowserLoginCreatesSessionForUploader()
+    {
+        using var factory = Protected();
+        using var client = factory.CreateClient();
+        var content = new StringContent("{\"password\":\"" + Password + "\"}", Encoding.UTF8, "application/json");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/login", new StringContent("{\"password\":\"wrong\"}", Encoding.UTF8, "application/json"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsync("/login", content)).StatusCode);
+
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+        using var response = await client.GetAsync("/");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("Unwrap an OBJ mesh", html);
+    }
+
     [Theory]
     [InlineData("Basic", "d3JvbmdwYXNzd29yZA==")] // "wrongpassword" without a colon
     [InlineData("Basic", "dXNlcjp3cm9uZw==")] // "user:wrong"

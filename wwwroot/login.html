@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ministry of Flat Http</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            min-height: 100vh;
+            margin: 0;
+            color: #f8f9fa;
+            background: radial-gradient(circle at 15% 10%, rgba(13, 202, 240, .14), transparent 28rem), linear-gradient(145deg, #111820, #080b0f 70%);
+        }
+
+        main {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+        }
+
+        .auth-card {
+            width: min(100%, 30rem);
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, .1);
+            border-radius: 1.5rem;
+            background: rgba(24, 31, 40, .9);
+            box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, .35);
+        }
+
+        .card-body { padding: 2rem; }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: .9rem;
+            margin-bottom: 2rem;
+            color: #67e8f9;
+            font-size: .72rem;
+            font-weight: 700;
+            letter-spacing: .14em;
+        }
+
+        .brand-mark {
+            display: inline-flex;
+            width: 3.25rem;
+            height: 3.25rem;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(13, 202, 240, .45);
+            border-radius: .75rem;
+            background: rgba(13, 202, 240, .1);
+            font-size: .8rem;
+            letter-spacing: .08em;
+        }
+
+        h1 { margin: 0 0 .6rem; font-size: clamp(1.8rem, 6vw, 2.35rem); line-height: 1.1; letter-spacing: -.03em; }
+        .intro { margin: 0 0 1.75rem; color: #9aa7b5; line-height: 1.55; }
+        label { display: block; margin-bottom: .5rem; color: #d9e0e6; font-size: .9rem; font-weight: 600; }
+
+        input {
+            width: 100%;
+            border: 1px solid #526170;
+            border-radius: .75rem;
+            padding: .85rem 1rem;
+            color: #f8f9fa;
+            background: rgba(8, 11, 15, .55);
+            font: inherit;
+            outline: none;
+            transition: border-color .15s ease, box-shadow .15s ease;
+        }
+
+        input:focus { border-color: #0dcaf0; box-shadow: 0 0 0 .2rem rgba(13, 202, 240, .16); }
+
+        button {
+            width: 100%;
+            margin-top: 1.25rem;    
+            border: 0;
+            border-radius: .75rem;
+            padding: .85rem 1rem;
+            color: #061116;
+            background: #0dcaf0;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+            transition: background-color .15s ease, transform .15s ease;
+        }
+
+        button:hover:not(:disabled), button:focus-visible:not(:disabled) { background: #67e8f9; transform: translateY(-1px); }
+        button:disabled { cursor: wait; opacity: .65; }
+        .status { margin: 1rem 0 0; border: 1px solid rgba(248, 113, 113, .45); border-radius: .65rem; padding: .7rem .8rem; color: #fecaca; background: rgba(127, 29, 29, .25); font-size: .9rem; line-height: 1.4; }
+        .status[hidden] { display: none; }
+        footer { border-top: 1px solid rgba(255, 255, 255, .08); padding: .9rem 2rem; color: #778493; font-size: .78rem; }
+
+        @media (max-width: 30rem) {
+            .card-body { padding: 1.5rem; }
+            footer { padding-inline: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <section class="auth-card" aria-labelledby="login-title">
+            <div class="card-body">
+                <form id="login-form">
+                    <label for="password">Password</label>
+                    <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+                    <div id="status" class="status" role="alert" aria-live="polite" hidden></div>
+                    <button id="submit-button" type="submit">Continue</button>
+                </form>
+            </div>
+        </section>
+    </main>
+    <script>
+        const form = document.querySelector("#login-form");
+        const password = document.querySelector("#password");
+        const status = document.querySelector("#status");
+        const submitButton = document.querySelector("#submit-button");
+
+        function showError(message) {
+            status.textContent = message;
+            status.hidden = false;
+        }
+
+        async function readError(response) {
+            try {
+                const problem = await response.json();
+                return problem.title || problem.detail || `Sign-in failed (${response.status}).`;
+            } catch {
+                return `Sign-in failed (${response.status}).`;
+            }
+        }
+
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            if (!password.value) return;
+            submitButton.disabled = true;
+            submitButton.textContent = "Signing in...";
+            status.hidden = true;
+
+            try {
+                const response = await fetch("/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ password: password.value })
+                });
+                if (!response.ok) throw new Error(await readError(response));
+                window.location.assign("/");
+            } catch (error) {
+                showError(error.message || "The password was not accepted.");
+                password.select();
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = "Continue to uploader";
+            }
+        });
+    </script>
+</body>
+</html>

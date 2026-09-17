@@ -12,7 +12,7 @@ public sealed class MofSettings
     public string TempDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "Mof.Http");
     /// <summary>Optional SHA-256 (hex) pinned for the UnWrapConsole3.exe binary. Empty disables verification.</summary>
     public string? ExpectedSha256 { get; set; }
-    /// <summary>Optional shared password protecting the UI and API. Null or empty disables authentication.</summary>
+    /// <summary>Optional shared password protecting the UI and API. Null or empty disables authentication; browser users sign in through the in-app login screen.</summary>
     public string? ApiPassword { get; set; }
 
     public void Validate()

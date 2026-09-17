@@ -60,15 +60,47 @@ public sealed class AuthAttemptTracker
     public void NoteSuccess(string key) => entries.TryRemove(key, out _);
 }
 
+/// <summary>Short-lived in-memory sessions created by the browser login screen.</summary>
+public sealed class AuthSessionStore
+{
+    private readonly ConcurrentDictionary<string, DateTime> sessions = new(StringComparer.Ordinal);
+
+    public string Create(TimeSpan lifetime)
+    {
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .Replace('+', '-')
+            .Replace('/', '_')
+            .TrimEnd('=');
+        sessions[token] = DateTime.UtcNow.Add(lifetime);
+        return token;
+    }
+
+    public bool IsValid(string? token)
+    {
+        if (string.IsNullOrEmpty(token) || !sessions.TryGetValue(token, out var expiresAt)) return false;
+        if (expiresAt > DateTime.UtcNow) return true;
+        sessions.TryRemove(token, out _);
+        return false;
+    }
+
+    public void Remove(string? token)
+    {
+        if (!string.IsNullOrEmpty(token)) sessions.TryRemove(token, out _);
+    }
+}
+
 /// <summary>
 /// Optional shared-password protection for the UI and API. When <see cref="MofSettings.ApiPassword"/>
 /// is set, every request except <c>/health</c> must present the password as HTTP Basic credentials
-/// (username is ignored), a Bearer token, or an <c>X-API-Key</c> header. Comparisons use constant time.
+/// (username is ignored), a Bearer token, an <c>X-API-Key</c> header, or a browser session created
+/// by the in-app login screen. Comparisons use constant time.
 /// </summary>
 public static class ApiPassword
 {
     internal const string HealthPath = "/health";
     internal const string ApiKeyHeader = "X-API-Key";
+    internal const string SessionCookieName = "mof_session";
+    internal static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(8);
 
     public static IApplicationBuilder UseMofPasswordAuth(this IApplicationBuilder app)
     {
@@ -76,6 +108,7 @@ public static class ApiPassword
         if (string.IsNullOrEmpty(settings.ApiPassword)) return app;
         var expected = Encoding.UTF8.GetBytes(settings.ApiPassword);
         var tracker = app.ApplicationServices.GetRequiredService<AuthAttemptTracker>();
+        var sessions = app.ApplicationServices.GetRequiredService<AuthSessionStore>();
         return app.Use(async (context, next) =>
         {
             if (context.Request.Path.Equals(HealthPath, StringComparison.OrdinalIgnoreCase))
@@ -89,12 +122,32 @@ public static class ApiPassword
                 await TooManyAttemptsAsync(context, retryAfter);
                 return;
             }
-            if (IsAuthorized(context.Request, expected))
+            if (IsAuthorized(context.Request, expected)
+                || sessions.IsValid(context.Request.Cookies[SessionCookieName]))
             {
                 tracker.NoteSuccess(client);
                 await next();
                 return;
             }
+
+            if (IsBrowserNavigation(context.Request))
+            {
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.SendFileAsync(
+                    Path.Combine(context.RequestServices.GetRequiredService<IWebHostEnvironment>().WebRootPath, "login.html"),
+                    context.RequestAborted);
+                return;
+            }
+
+            // The login form handles its own failure response so fetch() never receives
+            // a Basic challenge that could trigger the browser's native password dialog.
+            if (context.Request.Method.Equals(HttpMethods.Post, StringComparison.OrdinalIgnoreCase)
+                && context.Request.Path.Equals("/login", StringComparison.OrdinalIgnoreCase))
+            {
+                await next();
+                return;
+            }
+
             tracker.NoteFailure(client);
             if (tracker.IsBlocked(client, out retryAfter))
             {
@@ -143,6 +196,22 @@ public static class ApiPassword
         return false;
     }
 
+    internal static bool MatchesPassword(string? candidate, string? expected)
+    {
+        if (string.IsNullOrEmpty(expected)) return true;
+        return Matches(candidate, Encoding.UTF8.GetBytes(expected));
+    }
+
+    internal static string ClientKey(HttpContext context) => context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    private static bool IsBrowserNavigation(HttpRequest request)
+    {
+        if (!request.Method.Equals(HttpMethods.Get, StringComparison.OrdinalIgnoreCase)
+            || (!request.Path.Equals("/", StringComparison.OrdinalIgnoreCase)
+                && !request.Path.Equals("/index.html", StringComparison.OrdinalIgnoreCase))) return false;
+        return request.Headers["Accept"].ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool Matches(string? candidate, byte[] expected)
     {
         if (candidate is null) return false;
@@ -150,3 +219,5 @@ public static class ApiPassword
         return CryptographicOperations.FixedTimeEquals(bytes, expected);
     }
 }
+
+public sealed record LoginRequest(string? Password);
