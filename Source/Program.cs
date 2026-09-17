@@ -68,6 +68,9 @@ app.MapControllers();
 app.MapOpenApi();
 app.MapGet("/health", (BinaryInstaller installer) => Results.Ok(new { status = File.Exists(installer.ExecutablePath) ? "ready" : "unavailable" }))
     .WithSummary("Check gateway readiness.");
-app.Run();
+await app.RunAsync();
 
-public partial class Program;
+public partial class Program
+{
+    protected Program() { }
+}

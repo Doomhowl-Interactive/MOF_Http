@@ -49,7 +49,8 @@ public sealed class ProcessTests
         using var sandbox = new Sandbox();
         var settings = new MofSettings
         {
-            BinaryDirectory = sandbox.InstallWorker(), TempDirectory = sandbox.PathFor("requests"),
+            BinaryDirectory = sandbox.InstallWorker(),
+            TempDirectory = sandbox.PathFor("requests"),
             MaxConcurrentProcesses = 1
         };
         using var client = new HttpClient();

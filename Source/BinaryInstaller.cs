@@ -36,12 +36,12 @@ public sealed class BinaryInstaller(MofSettings settings, IHostEnvironment envir
                     await using (var target = File.Create(archivePath))
                         await LimitedCopy.CopyAsync(source, target, 100 * 1024 * 1024, downloadTimeout.Token);
 
-                    using var archive = ZipFile.OpenRead(archivePath);
+                    using var archive = await ZipFile.OpenReadAsync(archivePath, downloadTimeout.Token);
                     if (archive.Entries.Sum(entry => entry.Length) > 500L * 1024 * 1024)
                         throw new InvalidDataException("Release archive exceeds the extraction limit.");
                     // ZipFile rejects paths escaping this staging directory.
                     var extracted = Path.Combine(stage, "extracted");
-                    archive.ExtractToDirectory(extracted);
+                    await archive.ExtractToDirectoryAsync(extracted, downloadTimeout.Token);
                     var executables = Directory.GetFiles(extracted, "UnWrapConsole3.exe", SearchOption.AllDirectories);
                     if (executables.Length != 1 || new FileInfo(executables[0]).Length == 0)
                         throw new InvalidDataException("Release must contain exactly one nonempty UnWrapConsole3.exe.");

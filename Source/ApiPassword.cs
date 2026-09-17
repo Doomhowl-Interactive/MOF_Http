@@ -120,9 +120,8 @@ public static class ApiPassword
 
     internal static bool IsAuthorized(HttpRequest request, byte[] expected)
     {
-        if (request.Headers.TryGetValue(ApiKeyHeader, out var keys))
-            foreach (var key in keys)
-                if (Matches(key, expected)) return true;
+        if (request.Headers.TryGetValue(ApiKeyHeader, out var keys)
+            && keys.Any(key => Matches(key, expected))) return true;
         if (!request.Headers.TryGetValue("Authorization", out var credentials)) return false;
         foreach (var credential in credentials)
         {

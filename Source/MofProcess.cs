@@ -9,8 +9,11 @@ public static class MofProcess
     {
         var start = new ProcessStartInfo(settings.WineExecutable ?? executable)
         {
-            WorkingDirectory = directory, UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true
+            WorkingDirectory = directory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
         if (settings.WineExecutable is not null) start.ArgumentList.Add(executable);
         // Relative mesh paths work both natively and under Wine, without depending on

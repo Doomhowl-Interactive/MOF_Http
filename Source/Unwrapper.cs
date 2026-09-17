@@ -120,7 +120,8 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
 
     private async Task DeleteWithRetryAsync(string directory)
     {
-        for (var attempt = 0; ; attempt++)
+        var attempt = 0;
+        while (true)
         {
             try
             {
@@ -146,6 +147,7 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
                 return;
             }
             await Task.Delay(100 * (attempt + 1), CancellationToken.None);
+            attempt++;
         }
     }
 
