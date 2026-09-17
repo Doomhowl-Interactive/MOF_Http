@@ -23,8 +23,8 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
             if (!File.Exists(installer.ExecutablePath))
                 throw new UnwrapException(503, "Ministry of Flat is not ready. Retry later.");
         }
-        if (!await slots.WaitAsync(0, cancellationToken))
-            throw new UnwrapException(503, "All unwrap processes are busy. Retry later.");
+        // Wait without occupying a process slot; disconnects remove their waiter.
+        await slots.WaitAsync(cancellationToken);
         var baseDirectory = Path.GetFullPath(settings.TempDirectory);
         var directory = Path.Combine(baseDirectory, Guid.NewGuid().ToString("N"));
         try

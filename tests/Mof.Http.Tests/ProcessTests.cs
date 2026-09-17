@@ -72,16 +72,19 @@ public sealed class ProcessTests
             }
             Assert.NotNull(pidFile);
             using var process = Process.GetProcessById(int.Parse(await File.ReadAllTextAsync(pidFile)));
-            var busy = await Assert.ThrowsAsync<UnwrapException>(() => unwrapper.UnwrapAsync(request, default));
-            Assert.Equal(503, busy.StatusCode);
+            using var queuedSource = new MemoryStream(Encoding.UTF8.GetBytes("#logs"));
+            var queuedRequest = new UnwrapRequest { File = new FormFile(queuedSource, 0, queuedSource.Length, "File", "mesh.obj") };
+            using var waitingCancellation = new CancellationTokenSource();
+            var canceledWaiter = unwrapper.UnwrapAsync(queuedRequest, waitingCancellation.Token);
+            var queued = unwrapper.UnwrapAsync(queuedRequest, default);
+            Assert.False(canceledWaiter.IsCompleted);
+            Assert.False(queued.IsCompleted);
+            waitingCancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledWaiter);
             cancellation.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
             Assert.True(process.HasExited);
-            sandbox.AssertClean();
-
-            using var nextSource = new MemoryStream(Encoding.UTF8.GetBytes("#logs"));
-            var next = new UnwrapRequest { File = new FormFile(nextSource, 0, nextSource.Length, "File", "mesh.obj") };
-            using (var completed = await unwrapper.UnwrapAsync(next, default))
+            using (var completed = await queued)
                 Assert.True(new FileInfo(completed.ContentPath).Length > 0);
             sandbox.AssertClean();
         }

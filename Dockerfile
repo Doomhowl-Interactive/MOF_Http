@@ -5,6 +5,15 @@ RUN dotnet restore Mof.Http.csproj
 COPY . .
 RUN dotnet publish Mof.Http.csproj -c Release --no-restore -o /out /p:UseAppHost=false /p:OpenApiGenerateDocuments=false
 
+FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS mof
+# Pin the publisher's release so image builds cannot silently change the executable.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl unzip \
+    && curl --fail --location --silent --show-error https://www.quelsolaar.com/MinistryOfFlat_Release.zip -o /tmp/mof.zip \
+    && echo "05eeeff024307697c969f3658103684a4e51fdbe96a623007606adc56d6ea449  /tmp/mof.zip" | sha256sum --check \
+    && mkdir -p /mof \
+    && unzip -j /tmp/mof.zip -d /mof
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 # MOF is a Windows x86/x64 program. Compose pins this image to linux/amd64.
 # Wine is pinned to the verified 9.0 release; bump WINE_VERSION deliberately and
@@ -29,9 +38,10 @@ ENV URLS=http://0.0.0.0:8080 \
     WINEDLLOVERRIDES=mscoree,mshtml=
 RUN mkdir -p /data/MOFBinary /home/app/.wine \
     && chown -R app:app /data /home/app
+COPY --from=mof --chown=app:app /mof/ /data/MOFBinary/
 USER app
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \
     CMD curl --fail --silent http://127.0.0.1:8080/health || exit 1
-ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/mof-entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "-s", "--", "/usr/local/bin/mof-entrypoint"]
 CMD ["dotnet", "Mof.Http.dll"]

@@ -100,23 +100,20 @@ def main(base):
         assert result[0] == expected, (kwargs, result)
     print("PASS invalid geometry and input validation", flush=True)
 
-    barrier = threading.Barrier(8)
+    barrier = threading.Barrier(12)
 
     def concurrent_request(_):
         barrier.wait()
         return unwrap(base)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(concurrent_request, range(8)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+        results = list(pool.map(concurrent_request, range(12)))
     codes = [result[0] for result in results]
-    assert 200 in codes and 503 in codes, codes
+    assert codes == [200] * 12, codes
     for result in results:
-        if result[0] == 200:
-            assert_mesh(result)
-        else:
-            assert result[0] == 503 and result[1]["Retry-After"] == "1", result
+        assert_mesh(result)
     assert_mesh(unwrap(base))
-    print("PASS concurrent requests, capacity rejection, recovery:", codes, flush=True)
+    print("PASS concurrent requests wait for slots and recover:", codes, flush=True)
 
 
 if __name__ == "__main__":

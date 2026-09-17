@@ -15,7 +15,7 @@ docker compose up --build -d
 docker compose logs -f mof
 ```
 
-Open `http://localhost:5000`, with interactive Swagger UI documentation at `/swagger/` and the raw specification at `/openapi/v1.json`. Compose binds the port to the host loopback interface. First startup initializes a Wine prefix and downloads MOF over HTTPS; allow several minutes. If the download fails, the gateway still starts (`/health` reports `unavailable`, unwrap returns `503`) and retries on the next request. The `mof-binaries` named volume retains the download across container replacement. `docker compose down` preserves it; `docker compose down -v` removes it. The Wine prefix is container-local and recreated when the container is replaced. Wine is pinned to the verified 9.0 release in the Dockerfile and the entrypoint refuses other major versions; re-verify with real meshes before bumping it. The service is capped at 4 GB of memory so concurrent unwraps degrade to `503`/`504` instead of exhausting the host.
+Open `http://localhost:5000`, with interactive Swagger UI documentation at `/swagger/` and the raw specification at `/openapi/v1.json`. Compose binds the port to the host loopback interface. First startup initializes a Wine prefix and downloads MOF over HTTPS into its named volume; allow several minutes. If the download fails, the gateway still starts (`/health` reports `unavailable`, unwrap returns `503`) and retries on the next request. The `mof-binaries` named volume retains the download across container replacement. `docker compose down` preserves it; `docker compose down -v` removes it. The Wine prefix is container-local and recreated when the container is replaced. Wine is pinned to the verified 9.0 release in the Dockerfile and the entrypoint refuses other major versions; re-verify with real meshes before bumping it. Compose caps memory at 4 GB; requests beyond the configured process slots wait for capacity.
 
 If port 5000 is occupied, set `MOF_HTTP_PORT` before starting Compose (or in a local `.env` file). For example, in PowerShell:
 
@@ -48,9 +48,25 @@ python tests/docker_smoke.py http://localhost:5000
 python tests/docker_verify.py mof_http-mof-1
 ```
 
-Adjust the URL for a custom port and the container name if the Compose project name differs (`docker compose ps`). The smoke test checks real MOF UV output, settings, UI/OpenAPI, invalid input, and concurrent requests with busy-response recovery. The lifecycle test creates temporary containers from the running service's image, mounts its binary volume read-only, and verifies real MOF timeouts, client-disconnect cancellation, process/file cleanup, subsequent successful requests, upload/output limits, non-root operation, and binary reuse with an unavailable download URL. Temporary containers are removed afterward.
+Adjust the URL for a custom port and the container name if the Compose project name differs (`docker compose ps`). The smoke test checks real MOF UV output, settings, UI/OpenAPI, invalid input, and queued concurrent requests. The lifecycle test creates temporary containers from the running service's image, mounts its binary volume read-only, and verifies real MOF timeouts, client-disconnect cancellation, process/file cleanup, subsequent successful requests, upload/output limits, non-root operation, and binary reuse with an unavailable download URL. Temporary containers are removed afterward.
 
 Verified on Docker Desktop's Linux/amd64 engine with Wine 9.0 on September 17, 2026: image build, fresh download/startup, both scripts, successful 50-cube mesh unwrapping, Compose container replacement without redownloading, and clean shutdown/restart. All 22 Windows .NET tests also passed, including the fresh-download integration test. Test representative production meshes when changing MOF or Wine versions.
+
+## Fly.io
+
+The `fly.toml` deploys one linux/amd64 Machine in Frankfurt (`fra`) with one shared CPU and 1 GB RAM. The Docker build downloads the publisher's MOF release, checks its pinned SHA-256, and includes the executables in the image. No Fly volume is needed. The app listens on port 8080 behind Fly's HTTPS proxy. Wine's prefix remains ephemeral. Up to eight unwrap processes can run at once; additional requests wait for a slot until the client disconnects. The process timeout begins after a slot is acquired.
+
+Capacity testing on a 1 CPU, 1 GB Docker container with 5,000-cube OBJ requests found: four simultaneous requests completed in 13 seconds with 516 MiB sampled peak memory; eight in 37 seconds with 711 MiB; and twelve in 61 seconds with 922 MiB. All succeeded without OOM events. Eight slots leave more headroom than twelve for larger meshes. These results are workload-specific; test representative production meshes before raising the slot count or upload limits.
+
+The public URL requires an `ApiPassword` Fly secret. To deploy from a machine signed in to Fly.io, set the secret before the first deployment, then run:
+
+```sh
+fly secrets set 'ApiPassword=<long-random-password>' --stage
+fly deploy --ha=false --wait-timeout 10m
+fly status
+```
+
+The first boot initializes Wine, so it can take several minutes. Verify `/health` returns `{"status":"ready"}` and submit a known-good OBJ to `/api/unwrap` using the password. Do not put the password in `fly.toml` or source control. To update MOF later, verify the new release and update the pinned archive SHA-256 in the Dockerfile before rebuilding.
 
 ### Alternatives
 
