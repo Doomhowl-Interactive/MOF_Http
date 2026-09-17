@@ -25,6 +25,8 @@ public sealed class BinaryInstaller(MofSettings settings, IHostEnvironment envir
                 logger.LogInformation("Downloading Ministry of Flat from {Url}", settings.DownloadUrl);
                 using var downloadTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 downloadTimeout.CancelAfter(TimeSpan.FromMinutes(5));
+                try
+                {
                 using var response = await clients.CreateClient("download").GetAsync(settings.DownloadUrl,
                     HttpCompletionOption.ResponseHeadersRead, downloadTimeout.Token);
                 response.EnsureSuccessStatusCode();
@@ -54,6 +56,11 @@ public sealed class BinaryInstaller(MofSettings settings, IHostEnvironment envir
                 // Publish the executable last: interrupted downloads are never considered installed.
                 File.Move(executables[0], ExecutablePath, overwrite: true);
                 logger.LogInformation("Ministry of Flat is ready at {Path}", ExecutablePath);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new TimeoutException("Ministry of Flat download timed out.");
+                }
             }
             finally { Directory.Delete(stage, recursive: true); }
         }
