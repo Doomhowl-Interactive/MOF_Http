@@ -12,14 +12,38 @@ builder.Services.AddSingleton(services =>
     // falling back to MinistryOfFlat:ApiPassword when the root key is unset.
     settings.ApiPassword = configuration["ApiPassword"] ?? settings.ApiPassword;
     settings.Validate();
+    // Resolve relative directories against the content root so the gateway behaves the same
+    // regardless of the process working directory (native run vs. container vs. tests).
+    var environment = services.GetRequiredService<IHostEnvironment>();
+    settings.BinaryDirectory = Path.GetFullPath(settings.BinaryDirectory, environment.ContentRootPath);
+    settings.TempDirectory = Path.GetFullPath(settings.TempDirectory, environment.ContentRootPath);
     return settings;
 });
 builder.Services.AddOptions<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>()
-    .Configure<MofSettings>((options, settings) => options.Limits.MaxRequestBodySize = settings.MaxUploadBytes + 64 * 1024);
+    .Configure<MofSettings>((options, _) => options.Limits.MaxRequestBodySize = null);
 builder.Services.AddOptions<FormOptions>()
     .Configure<MofSettings>((options, settings) => options.MultipartBodyLengthLimit = settings.MaxUploadBytes + 64 * 1024);
 builder.Services.AddControllers();
-builder.Services.AddProblemDetails();
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions>(options =>
+{
+    // Let the unwrap action inspect ModelState itself so a multipart body over the
+    // upload limit can be reported as 413 instead of the default 400.
+    options.SuppressModelStateInvalidFilter = true;
+});
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        // Backstop for any direct 413 from request handling; the multipart-limit case is
+        // mapped in the unwrap action. Keeps a single wording for "upload too large".
+        if (context.Exception is BadHttpRequestException bad && bad.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            context.ProblemDetails.Status = StatusCodes.Status413PayloadTooLarge;
+            context.ProblemDetails.Title = "The OBJ exceeds the configured upload limit.";
+        }
+    };
+});
+builder.Services.AddSingleton<AuthAttemptTracker>();
 builder.Services.AddHttpClient("download", client => client.Timeout = TimeSpan.FromMinutes(5));
 builder.Services.AddSingleton<BinaryInstaller>();
 builder.Services.AddHostedService<BinaryStartup>();

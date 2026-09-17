@@ -7,13 +7,26 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
 {
     private readonly SemaphoreSlim slots = new(settings.MaxConcurrentProcesses, settings.MaxConcurrentProcesses);
 
-    public async Task<byte[]> UnwrapAsync(UnwrapRequest request, CancellationToken cancellationToken)
+    public async Task<UnwrapResult> UnwrapAsync(UnwrapRequest request, CancellationToken cancellationToken)
     {
         if (request.File.Length > settings.MaxUploadBytes)
             throw new UnwrapException(413, "The OBJ exceeds the configured upload limit.");
+        if (!File.Exists(installer.ExecutablePath))
+        {
+            try { await installer.EnsureInstalledAsync(cancellationToken); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception exception) when (exception is HttpRequestException or InvalidDataException or IOException or TimeoutException)
+            {
+                logger.LogWarning(exception, "Ministry of Flat binary is unavailable");
+                throw new UnwrapException(503, "Ministry of Flat is not ready. Retry later.");
+            }
+            if (!File.Exists(installer.ExecutablePath))
+                throw new UnwrapException(503, "Ministry of Flat is not ready. Retry later.");
+        }
         if (!await slots.WaitAsync(0, cancellationToken))
             throw new UnwrapException(503, "All unwrap processes are busy. Retry later.");
-        var directory = Path.Combine(Path.GetFullPath(settings.TempDirectory), Guid.NewGuid().ToString("N"));
+        var baseDirectory = Path.GetFullPath(settings.TempDirectory);
+        var directory = Path.Combine(baseDirectory, Guid.NewGuid().ToString("N"));
         try
         {
             Directory.CreateDirectory(directory);
@@ -21,7 +34,13 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
             var output = Path.Combine(directory, "output.obj");
             await using (var source = request.File.OpenReadStream())
             await using (var target = File.Create(input))
-                await LimitedCopy.CopyAsync(source, target, settings.MaxUploadBytes, cancellationToken);
+            {
+                try { await LimitedCopy.CopyAsync(source, target, settings.MaxUploadBytes, cancellationToken); }
+                catch (InvalidDataException)
+                {
+                    throw new UnwrapException(413, "The OBJ exceeds the configured upload limit.");
+                }
+            }
 
             var start = MofProcess.CreateStartInfo(settings, installer.ExecutablePath, directory, request);
             using var process = new Process { StartInfo = start };
@@ -36,7 +55,11 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
                 if (!process.HasExited)
                 {
                     try { process.Kill(entireProcessTree: true); }
-                    catch (InvalidOperationException) { /* Already exited. */ }
+                    catch (Exception exception) when (exception is InvalidOperationException
+                        or System.ComponentModel.Win32Exception or NotSupportedException)
+                    {
+                        // Already exited or cannot signal; the wait below still reaps the process.
+                    }
                 }
                 await process.WaitForExitAsync(CancellationToken.None);
                 await Task.WhenAll(stdout, stderr);
@@ -53,20 +76,36 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
             }
             if (new FileInfo(output).Length > settings.MaxOutputBytes)
                 throw new UnwrapException(422, "The generated OBJ exceeds the configured output limit.");
-            var bytes = await File.ReadAllBytesAsync(output, cancellationToken);
-            var lines = Encoding.UTF8.GetString(bytes).Split('\n');
-            if (!lines.Any(line => line.StartsWith("vt ", StringComparison.Ordinal))
-                || !lines.Any(line => line.StartsWith("f ", StringComparison.Ordinal) && line.Contains('/')))
+            if (!await HasUvAsync(output, cancellationToken))
                 throw new UnwrapException(422, "Ministry of Flat did not produce a mesh with UV coordinates.");
-            return bytes;
+            // Hand ownership of the completed mesh to the caller (streamed to the client
+            // without buffering the whole file in memory); the request directory is removed below.
+            Directory.CreateDirectory(baseDirectory);
+            var completed = Path.Combine(baseDirectory, Guid.NewGuid().ToString("N") + ".obj");
+            File.Move(output, completed);
+            return new UnwrapResult(completed);
         }
         finally
         {
-            try { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
-            catch (IOException exception) { logger.LogWarning(exception, "Could not clean temporary directory {Path}", directory); }
-            catch (UnauthorizedAccessException exception) { logger.LogWarning(exception, "Could not clean temporary directory {Path}", directory); }
+            await DeleteWithRetryAsync(directory);
             slots.Release();
         }
+    }
+
+    private static async Task<bool> HasUvAsync(string path, CancellationToken cancellationToken)
+    {
+        var hasVt = false;
+        var hasFace = false;
+        await using var stream = File.OpenRead(path);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        string? line;
+        while ((line = await reader.ReadLineAsync(cancellationToken)) is not null)
+        {
+            if (!hasVt && line.StartsWith("vt ", StringComparison.Ordinal)) hasVt = true;
+            else if (!hasFace && line.StartsWith("f ", StringComparison.Ordinal) && line.Contains('/')) hasFace = true;
+            if (hasVt && hasFace) return true;
+        }
+        return false;
     }
 
     private static async Task<string> DrainAsync(StreamReader reader)
@@ -79,7 +118,54 @@ public sealed class Unwrapper(BinaryInstaller installer, MofSettings settings, I
         return log.ToString();
     }
 
+    private async Task DeleteWithRetryAsync(string directory)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+                return;
+            }
+            catch (IOException exception) when (attempt < 2)
+            {
+                logger.LogDebug(exception, "Temporary directory {Path} is locked, retrying", directory);
+            }
+            catch (UnauthorizedAccessException exception) when (attempt < 2)
+            {
+                logger.LogDebug(exception, "Temporary directory {Path} is locked, retrying", directory);
+            }
+            catch (IOException exception)
+            {
+                logger.LogWarning(exception, "Could not clean temporary directory {Path}", directory);
+                return;
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                logger.LogWarning(exception, "Could not clean temporary directory {Path}", directory);
+                return;
+            }
+            await Task.Delay(100 * (attempt + 1), CancellationToken.None);
+        }
+    }
+
     public void Dispose() => slots.Dispose();
+}
+
+/// <summary>
+/// A completed unwrap mesh staged on disk. The owner must dispose it (deleting the file)
+/// once the response has been sent.
+/// </summary>
+public sealed class UnwrapResult(string contentPath) : IDisposable
+{
+    public string ContentPath { get; } = contentPath;
+
+    public void Dispose()
+    {
+        try { File.Delete(ContentPath); }
+        catch (IOException) { /* Best effort: container temp is recycled on restart. */ }
+        catch (UnauthorizedAccessException) { /* Best effort: container temp is recycled on restart. */ }
+    }
 }
 
 public sealed class UnwrapException(int statusCode, string message) : Exception(message)

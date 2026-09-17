@@ -25,7 +25,10 @@ internal static class OpenApiConfiguration
                 operation.Responses!["200"].Content!["application/octet-stream"].Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary" };
                 var settings = context.ApplicationServices.GetRequiredService<MofSettings>();
                 if (!string.IsNullOrEmpty(settings.ApiPassword))
+                {
                     operation.Responses["401"] = new OpenApiResponse { Description = "Missing or incorrect API password." };
+                    operation.Responses["429"] = new OpenApiResponse { Description = "Too many password attempts. Retry later." };
+                }
                 return Task.CompletedTask;
             });
             options.AddSchemaTransformer((schema, context, _) =>

@@ -65,6 +65,51 @@ public sealed class InstallerTests
     }
 
     [Fact]
+    public async Task ChecksumMismatchLeavesNoInstalledBinary()
+    {
+        using var sandbox = new Sandbox();
+        var archive = Archive(("UnWrapConsole3.exe", "fixture"));
+        using var handler = new StubHandler(() => new(HttpStatusCode.OK) { Content = new ByteArrayContent(archive) });
+        using var client = new HttpClient(handler);
+        var installer = new BinaryInstaller(
+            new MofSettings { BinaryDirectory = sandbox.PathFor("binary"), ExpectedSha256 = new string('0', 64) },
+            new TestEnvironment(sandbox.Root), new TestClients(client),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<BinaryInstaller>.Instance);
+        var error = await Record.ExceptionAsync(() => installer.EnsureInstalledAsync(default));
+        Assert.IsType<InvalidDataException>(error);
+        Assert.Empty(Directory.GetFileSystemEntries(installer.DirectoryPath));
+    }
+
+    [Fact]
+    public async Task MatchingChecksumInstallsBinary()
+    {
+        using var sandbox = new Sandbox();
+        var archive = Archive(("UnWrapConsole3.exe", "fixture"));
+        using var handler = new StubHandler(() => new(HttpStatusCode.OK) { Content = new ByteArrayContent(archive) });
+        using var client = new HttpClient(handler);
+        var hex = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("fixture")));
+        var installer = new BinaryInstaller(
+            new MofSettings { BinaryDirectory = sandbox.PathFor("binary"), ExpectedSha256 = hex },
+            new TestEnvironment(sandbox.Root), new TestClients(client),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<BinaryInstaller>.Instance);
+        await installer.EnsureInstalledAsync(default);
+        Assert.True(File.Exists(installer.ExecutablePath));
+    }
+
+    [Theory]
+    [InlineData("xyz")]
+    [InlineData("00")]
+    [InlineData("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg")]
+    public void InvalidChecksumIsRejected(string hash)
+    {
+        Assert.Throws<InvalidOperationException>(() => new MofSettings { ExpectedSha256 = hash }.Validate());
+    }
+
+    [Fact]
+    public void ValidChecksumIsAccepted() =>
+        new MofSettings { ExpectedSha256 = new string('0', 64) }.Validate();
+
+    [Fact]
     public async Task InvalidArchivesLeaveNoInstalledBinary()
     {
         foreach (var bytes in new[] { new byte[] { 1, 2, 3 }, Archive(("readme.txt", "no executable")), Archive(("UnWrapConsole3.exe", "")), Archive(("../escaped.exe", "bad"), ("UnWrapConsole3.exe", "fixture")) })

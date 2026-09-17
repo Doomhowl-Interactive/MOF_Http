@@ -114,6 +114,18 @@ public sealed class GatewayTests
     }
 
     [WindowsFact]
+    public async Task MultipartLimitReturns413Problem()
+    {
+        using var factory = new GatewayFactory(new() { ["MinistryOfFlat:MaxUploadBytes"] = "10" });
+        using var client = factory.CreateClient();
+        using var form = Form(new string('v', 80000));
+        using var response = await client.PostAsync("/api/unwrap", form);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("upload limit", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [WindowsFact]
     public async Task ProcessFailuresTimeoutAndOutputLimitReturnDocumentedErrors()
     {
         using var sandbox = new Sandbox();

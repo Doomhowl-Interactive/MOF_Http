@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 
 namespace Mof.Http;
 
@@ -27,35 +28,42 @@ public sealed class BinaryInstaller(MofSettings settings, IHostEnvironment envir
                 downloadTimeout.CancelAfter(TimeSpan.FromMinutes(5));
                 try
                 {
-                using var response = await clients.CreateClient("download").GetAsync(settings.DownloadUrl,
-                    HttpCompletionOption.ResponseHeadersRead, downloadTimeout.Token);
-                response.EnsureSuccessStatusCode();
-                var archivePath = Path.Combine(stage, "release.zip");
-                await using (var source = await response.Content.ReadAsStreamAsync(downloadTimeout.Token))
-                await using (var target = File.Create(archivePath))
-                    await LimitedCopy.CopyAsync(source, target, 100 * 1024 * 1024, downloadTimeout.Token);
+                    using var response = await clients.CreateClient("download").GetAsync(settings.DownloadUrl,
+                        HttpCompletionOption.ResponseHeadersRead, downloadTimeout.Token);
+                    response.EnsureSuccessStatusCode();
+                    var archivePath = Path.Combine(stage, "release.zip");
+                    await using (var source = await response.Content.ReadAsStreamAsync(downloadTimeout.Token))
+                    await using (var target = File.Create(archivePath))
+                        await LimitedCopy.CopyAsync(source, target, 100 * 1024 * 1024, downloadTimeout.Token);
 
-                using var archive = ZipFile.OpenRead(archivePath);
-                if (archive.Entries.Sum(entry => entry.Length) > 500L * 1024 * 1024)
-                    throw new InvalidDataException("Release archive exceeds the extraction limit.");
-                // ZipFile rejects paths escaping this staging directory.
-                var extracted = Path.Combine(stage, "extracted");
-                archive.ExtractToDirectory(extracted);
-                var executables = Directory.GetFiles(extracted, "UnWrapConsole3.exe", SearchOption.AllDirectories);
-                if (executables.Length != 1 || new FileInfo(executables[0]).Length == 0)
-                    throw new InvalidDataException("Release must contain exactly one nonempty UnWrapConsole3.exe.");
-                var sourceDirectory = Path.GetDirectoryName(executables[0])!;
-                foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
-                {
-                    if (file == executables[0]) continue;
-                    var destination = Path.Combine(DirectoryPath, Path.GetRelativePath(sourceDirectory, file));
-                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                    File.Copy(file, destination, overwrite: true);
-                }
-                cancellationToken.ThrowIfCancellationRequested();
-                // Publish the executable last: interrupted downloads are never considered installed.
-                File.Move(executables[0], ExecutablePath, overwrite: true);
-                logger.LogInformation("Ministry of Flat is ready at {Path}", ExecutablePath);
+                    using var archive = ZipFile.OpenRead(archivePath);
+                    if (archive.Entries.Sum(entry => entry.Length) > 500L * 1024 * 1024)
+                        throw new InvalidDataException("Release archive exceeds the extraction limit.");
+                    // ZipFile rejects paths escaping this staging directory.
+                    var extracted = Path.Combine(stage, "extracted");
+                    archive.ExtractToDirectory(extracted);
+                    var executables = Directory.GetFiles(extracted, "UnWrapConsole3.exe", SearchOption.AllDirectories);
+                    if (executables.Length != 1 || new FileInfo(executables[0]).Length == 0)
+                        throw new InvalidDataException("Release must contain exactly one nonempty UnWrapConsole3.exe.");
+                    if (!string.IsNullOrEmpty(settings.ExpectedSha256))
+                    {
+                        await using var binary = File.OpenRead(executables[0]);
+                        var hash = await SHA256.HashDataAsync(binary, downloadTimeout.Token);
+                        if (!Convert.ToHexString(hash).Equals(settings.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("Release checksum does not match ExpectedSha256.");
+                    }
+                    var sourceDirectory = Path.GetDirectoryName(executables[0])!;
+                    foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+                    {
+                        if (file == executables[0]) continue;
+                        var destination = Path.Combine(DirectoryPath, Path.GetRelativePath(sourceDirectory, file));
+                        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                        File.Copy(file, destination, overwrite: true);
+                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    // Publish the executable last: interrupted downloads are never considered installed.
+                    File.Move(executables[0], ExecutablePath, overwrite: true);
+                    logger.LogInformation("Ministry of Flat is ready at {Path}", ExecutablePath);
                 }
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
@@ -68,9 +76,19 @@ public sealed class BinaryInstaller(MofSettings settings, IHostEnvironment envir
     }
 }
 
-public sealed class BinaryStartup(BinaryInstaller installer) : IHostedService
+public sealed class BinaryStartup(BinaryInstaller installer, ILogger<BinaryStartup> logger) : IHostedService
 {
-    public Task StartAsync(CancellationToken cancellationToken) => installer.EnsureInstalledAsync(cancellationToken);
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        try { await installer.EnsureInstalledAsync(cancellationToken); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception exception) when (exception is HttpRequestException or InvalidDataException or IOException or TimeoutException)
+        {
+            // Serve degraded (/health reports unavailable, unwrap returns 503) and retry
+            // on demand instead of crash-looping the container on transient download failures.
+            logger.LogWarning(exception, "Ministry of Flat download failed at startup; will retry when the first unwrap request arrives");
+        }
+    }
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 

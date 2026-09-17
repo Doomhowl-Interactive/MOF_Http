@@ -80,7 +80,8 @@ public sealed class ProcessTests
 
             using var nextSource = new MemoryStream(Encoding.UTF8.GetBytes("#logs"));
             var next = new UnwrapRequest { File = new FormFile(nextSource, 0, nextSource.Length, "File", "mesh.obj") };
-            Assert.NotEmpty(await unwrapper.UnwrapAsync(next, default));
+            using (var completed = await unwrapper.UnwrapAsync(next, default))
+                Assert.True(new FileInfo(completed.ContentPath).Length > 0);
             sandbox.AssertClean();
         }
         finally

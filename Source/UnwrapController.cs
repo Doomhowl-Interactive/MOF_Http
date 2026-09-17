@@ -19,10 +19,25 @@ public sealed class UnwrapController(Unwrapper unwrapper) : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), 504, "application/problem+json")]
     public async Task<IActionResult> Unwrap([FromForm] UnwrapRequest request, CancellationToken cancellationToken)
     {
+        if (!ModelState.IsValid)
+        {
+            // Form reading happens during binding; an over-limit multipart body lands here
+            // as a ModelState error instead of reaching the action parameters. Report it as
+            // 413 with the same wording as the application-level upload check.
+            if (ModelState.Values.SelectMany(state => state.Errors)
+                .Any(error => error.ErrorMessage.Contains("Multipart body length limit", StringComparison.OrdinalIgnoreCase)))
+                return Problem(statusCode: 413, title: "The OBJ exceeds the configured upload limit.");
+            return ValidationProblem();
+        }
         try
         {
             var result = await unwrapper.UnwrapAsync(request, cancellationToken);
-            return File(result, "application/octet-stream", "unwrapped.obj");
+            Response.OnCompleted(() =>
+            {
+                result.Dispose();
+                return Task.CompletedTask;
+            });
+            return PhysicalFile(result.ContentPath, "application/octet-stream", "unwrapped.obj");
         }
         catch (UnwrapException exception)
         {
