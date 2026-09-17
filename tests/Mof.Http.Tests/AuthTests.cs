@@ -95,6 +95,40 @@ public sealed class AuthTests
     }
 
     [Fact]
+    public async Task RepeatedWrongPasswordsAreThrottledWith429()
+    {
+        using var factory = Protected();
+        using var client = factory.CreateClient();
+        var last = HttpStatusCode.Unauthorized;
+        string? retryAfter = null;
+        for (var i = 0; i < 30; i++)
+        {
+            using var response = await client.GetAsync("/");
+            last = response.StatusCode;
+            if (last == HttpStatusCode.TooManyRequests)
+            {
+                retryAfter = response.Headers.RetryAfter?.Delta?.ToString()
+                    ?? (response.Headers.TryGetValues("Retry-After", out var values) ? string.Join(",", values) : null);
+                break;
+            }
+            Assert.Equal(HttpStatusCode.Unauthorized, last);
+        }
+        Assert.Equal(HttpStatusCode.TooManyRequests, last);
+        Assert.NotNull(retryAfter);
+    }
+
+    [Fact]
+    public async Task SuccessfulPasswordResetsThrottle()
+    {
+        using var factory = Protected();
+        using var client = factory.CreateClient();
+        for (var i = 0; i < 5; i++)
+            Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/")).StatusCode);
+        Basic(client, "anyone", Password);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/")).StatusCode);
+    }
+
+    [Fact]
     public async Task ProtectedSpecAdvertisesAuthentication()
     {
         using var factory = Protected();
@@ -109,6 +143,7 @@ public sealed class AuthTests
         Assert.NotEmpty(document.RootElement.GetProperty("security").EnumerateArray());
         var operation = document.RootElement.GetProperty("paths").GetProperty("/api/unwrap").GetProperty("post");
         Assert.True(operation.GetProperty("responses").TryGetProperty("401", out _));
+        Assert.True(operation.GetProperty("responses").TryGetProperty("429", out _));
     }
 
     [Fact]
