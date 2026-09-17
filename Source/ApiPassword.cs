@@ -31,7 +31,10 @@ public sealed class AuthAttemptTracker
     public bool IsBlocked(string key, out TimeSpan retryAfter)
     {
         retryAfter = default;
-        if (!entries.TryGetValue(key, out var entry)) return false;
+        if (!entries.TryGetValue(key, out var entry))
+        {
+            return false;
+        }
         lock (entry)
         {
             if (entry.BlockedUntil.HasValue)
@@ -57,7 +60,9 @@ public sealed class AuthAttemptTracker
             entry.Failures.RemoveAll(time => now - time > Window);
             entry.Failures.Add(now);
             if (entry.Failures.Count >= MaxFailures)
+            {
                 entry.BlockedUntil = now + BlockDuration;
+            }
         }
     }
 
@@ -85,7 +90,10 @@ public static class ApiPassword
     public static IApplicationBuilder UseMofPasswordAuth(this IApplicationBuilder app)
     {
         var settings = app.ApplicationServices.GetRequiredService<MofSettings>();
-        if (string.IsNullOrEmpty(settings.ApiPassword)) return app;
+        if (string.IsNullOrEmpty(settings.ApiPassword))
+        {
+            return app;
+        }
         var tracker = app.ApplicationServices.GetRequiredService<AuthAttemptTracker>();
         return app.Use(async (context, next) =>
         {
@@ -156,14 +164,29 @@ public static class ApiPassword
     internal static bool IsAuthorized(HttpRequest request, byte[] expected)
     {
         if (request.Headers.TryGetValue(ApiKeyHeader, out var keys)
-            && keys.Any(key => Matches(key, expected))) return true;
-        if (!request.Headers.TryGetValue("Authorization", out var credentials)) return false;
+            && keys.Any(key => Matches(key, expected)))
+        {
+            return true;
+        }
+
+        if (!request.Headers.TryGetValue("Authorization", out var credentials))
+        {
+            return false;
+        }
+
         foreach (var credential in credentials)
         {
-            if (string.IsNullOrEmpty(credential)) continue;
+            if (string.IsNullOrEmpty(credential))
+            {
+                continue;
+            }
+
             if (credential.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
-                if (Matches(credential["Bearer ".Length..].Trim(), expected)) return true;
+                if (Matches(credential["Bearer ".Length..].Trim(), expected))
+                {
+                    return true;
+                }
             }
             else if (credential.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase))
             {
@@ -172,7 +195,10 @@ public static class ApiPassword
                 catch (FormatException) { continue; }
                 // The username is ignored; the password follows the first colon (RFC 7617).
                 var colon = decoded.IndexOf(':');
-                if (Matches(colon < 0 ? decoded : decoded[(colon + 1)..], expected)) return true;
+                if (Matches(colon < 0 ? decoded : decoded[(colon + 1)..], expected))
+                {
+                    return true;
+                }
             }
         }
         return false;
@@ -180,7 +206,11 @@ public static class ApiPassword
 
     internal static bool MatchesPassword(string? candidate, string? expected)
     {
-        if (string.IsNullOrEmpty(expected)) return true;
+        if (string.IsNullOrEmpty(expected))
+        {
+            return true;
+        }
+
         return Matches(candidate, Encoding.UTF8.GetBytes(expected));
     }
 
@@ -189,10 +219,18 @@ public static class ApiPassword
     private static bool IsAnonymousAsset(HttpRequest request)
     {
         if (!request.Method.Equals(HttpMethods.Get, StringComparison.OrdinalIgnoreCase)
-            && !request.Method.Equals(HttpMethods.Head, StringComparison.OrdinalIgnoreCase)) return false;
+            && !request.Method.Equals(HttpMethods.Head, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         if (request.Path.Equals("/login.html", StringComparison.OrdinalIgnoreCase)
-            || request.Path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase)) return true;
-        return request.Path.StartsWithSegments("/lib", StringComparison.OrdinalIgnoreCase);
+            || request.Path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return request.Path.StartsWithSegments("/lib", StringComparison.OrdinalIgnoreCase)
+            || request.Path.StartsWithSegments("/js", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static bool AcceptsHtml(HttpRequest request) =>
@@ -205,17 +243,27 @@ public static class ApiPassword
     private static bool IsBrowserDocumentRequest(HttpRequest request)
     {
         if (!request.Method.Equals(HttpMethods.Get, StringComparison.OrdinalIgnoreCase)
-            && !request.Method.Equals(HttpMethods.Head, StringComparison.OrdinalIgnoreCase)) return false;
+            && !request.Method.Equals(HttpMethods.Head, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
         // API and OpenAPI callers always get JSON so tooling keeps working; every other
         // document navigation (/, /index.html, /swagger, deep links) gets the in-app
         // login screen instead of a Basic challenge that pops the native dialog.
-        if (IsApiPath(request)) return false;
+        if (IsApiPath(request))
+        {
+            return false;
+        }
         return AcceptsHtml(request);
     }
 
     private static bool Matches(string? candidate, byte[] expected)
     {
-        if (candidate is null) return false;
+        if (candidate is null)
+        {
+            return false;
+        }
         var bytes = Encoding.UTF8.GetBytes(candidate);
         return CryptographicOperations.FixedTimeEquals(bytes, expected);
     }
@@ -254,7 +302,10 @@ public sealed class CombinedAuthenticationHandler(
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var header = await Context.AuthenticateAsync(ApiPassword.HeaderScheme);
-        if (header.Succeeded) return header;
+        if (header.Succeeded)
+        {
+            return header;
+        }
         return await Context.AuthenticateAsync(ApiPassword.CookieScheme);
     }
 
@@ -266,7 +317,9 @@ public sealed class CombinedAuthenticationHandler(
         // API clients send credentials preemptively and parse the JSON body, so only
         // advertise the Basic scheme where the caller is not expecting an HTML document.
         if (!ApiPassword.AcceptsHtml(Request))
+        {
             Response.Headers.WWWAuthenticate = "Basic realm=\"MOF\", charset=\"UTF-8\"";
+        }
         return Response.WriteAsJsonAsync(
             new { title = "A password is required to use this service.", status = 401 },
             cancellationToken: Context.RequestAborted);

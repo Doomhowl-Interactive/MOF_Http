@@ -69,7 +69,9 @@ public sealed class GatewayTests
         using var client = factory.CreateClient();
         var page = await client.GetStringAsync("/");
         Assert.Contains("id=\"drop-zone\"", page);
-        Assert.Contains("fetch(\"/api/unwrap\"", page);
+        Assert.Contains("src=\"/js/index.js\"", page);
+        var script = await client.GetStringAsync("/js/index.js");
+        Assert.Contains("fetch(\"/api/unwrap\"", script);
     }
 
     [Theory]

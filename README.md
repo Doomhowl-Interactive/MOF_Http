@@ -14,7 +14,8 @@ dotnet run --project Mof.Http.csproj
 
 The gateway listens on `http://localhost:5000`.
 
-## Environment variables
+## Environment variables.
+
 
 Override `appsettings.json` values with the standard .NET `__` environment-variable syntax:
 
