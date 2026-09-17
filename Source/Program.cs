@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Localization;
 using System.Globalization;
 using Microsoft.AspNetCore.Http.Features;
@@ -44,7 +46,20 @@ builder.Services.AddProblemDetails(options =>
     };
 });
 builder.Services.AddSingleton<AuthAttemptTracker>();
-builder.Services.AddSingleton<AuthSessionStore>();
+builder.Services.AddAuthentication(ApiPassword.CombinedScheme)
+    .AddCookie(ApiPassword.CookieScheme, options =>
+    {
+        options.Cookie.Name = ApiPassword.SessionCookieName;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        options.Cookie.SameSite = SameSiteMode.Strict;
+        options.ExpireTimeSpan = ApiPassword.SessionLifetime;
+        options.SlidingExpiration = false;
+    })
+    .AddScheme<AuthenticationSchemeOptions, SharedPasswordHeaderAuthenticationHandler>(
+        ApiPassword.HeaderScheme, _ => { })
+    .AddScheme<AuthenticationSchemeOptions, CombinedAuthenticationHandler>(
+        ApiPassword.CombinedScheme, _ => { });
 builder.Services.AddHttpClient("download", client => client.Timeout = TimeSpan.FromMinutes(5));
 builder.Services.AddSingleton<BinaryInstaller>();
 builder.Services.AddHostedService<BinaryStartup>();
@@ -52,6 +67,7 @@ builder.Services.AddSingleton<Unwrapper>();
 builder.Services.AddMofOpenApi();
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseAuthentication();
 app.UseMofPasswordAuth();
 app.UseRequestLocalization(new RequestLocalizationOptions
 {
@@ -65,7 +81,7 @@ app.UseSwaggerUI(options =>
     options.SwaggerEndpoint("../openapi/v1.json", "Ministry of Flat API v1");
     options.DocumentTitle = "Ministry of Flat API";
 });
-app.MapPost("/login", (LoginRequest login, HttpContext context, MofSettings settings, AuthAttemptTracker tracker, AuthSessionStore sessions) =>
+app.MapPost("/login", async (LoginRequest login, HttpContext context, MofSettings settings, AuthAttemptTracker tracker) =>
 {
     if (string.IsNullOrEmpty(settings.ApiPassword)) return Results.NotFound();
 
@@ -88,13 +104,11 @@ app.MapPost("/login", (LoginRequest login, HttpContext context, MofSettings sett
     }
 
     tracker.NoteSuccess(client);
-    context.Response.Cookies.Append(ApiPassword.SessionCookieName, sessions.Create(ApiPassword.SessionLifetime), new CookieOptions
+    await context.SignInAsync(ApiPassword.CookieScheme, ApiPassword.SharedPrincipal, new AuthenticationProperties
     {
-        HttpOnly = true,
-        Secure = context.Request.IsHttps,
-        SameSite = SameSiteMode.Strict,
-        Path = "/",
-        MaxAge = ApiPassword.SessionLifetime
+        IsPersistent = true,
+        AllowRefresh = false,
+        ExpiresUtc = DateTimeOffset.UtcNow.Add(ApiPassword.SessionLifetime)
     });
     return Results.Ok(new { redirect = "/" });
 }).ExcludeFromDescription();

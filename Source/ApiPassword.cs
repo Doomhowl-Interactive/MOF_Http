@@ -1,6 +1,10 @@
 using System.Collections.Concurrent;
+using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.Encodings.Web;
 using System.Text;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Options;
 
 namespace Mof.Http;
 
@@ -60,35 +64,6 @@ public sealed class AuthAttemptTracker
     public void NoteSuccess(string key) => entries.TryRemove(key, out _);
 }
 
-/// <summary>Short-lived in-memory sessions created by the browser login screen.</summary>
-public sealed class AuthSessionStore
-{
-    private readonly ConcurrentDictionary<string, DateTime> sessions = new(StringComparer.Ordinal);
-
-    public string Create(TimeSpan lifetime)
-    {
-        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
-            .Replace('+', '-')
-            .Replace('/', '_')
-            .TrimEnd('=');
-        sessions[token] = DateTime.UtcNow.Add(lifetime);
-        return token;
-    }
-
-    public bool IsValid(string? token)
-    {
-        if (string.IsNullOrEmpty(token) || !sessions.TryGetValue(token, out var expiresAt)) return false;
-        if (expiresAt > DateTime.UtcNow) return true;
-        sessions.TryRemove(token, out _);
-        return false;
-    }
-
-    public void Remove(string? token)
-    {
-        if (!string.IsNullOrEmpty(token)) sessions.TryRemove(token, out _);
-    }
-}
-
 /// <summary>
 /// Optional shared-password protection for the UI and API. When <see cref="MofSettings.ApiPassword"/>
 /// is set, every request except <c>/health</c> must present the password as HTTP Basic credentials
@@ -99,16 +74,19 @@ public static class ApiPassword
 {
     internal const string HealthPath = "/health";
     internal const string ApiKeyHeader = "X-API-Key";
+    internal const string CookieScheme = "MofCookie";
+    internal const string HeaderScheme = "MofHeader";
+    internal const string CombinedScheme = "MofPassword";
     internal const string SessionCookieName = "mof_session";
     internal static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(8);
+    internal static ClaimsPrincipal SharedPrincipal => new(new ClaimsIdentity(
+        [new Claim(ClaimTypes.Name, "shared-password")], CookieScheme));
 
     public static IApplicationBuilder UseMofPasswordAuth(this IApplicationBuilder app)
     {
         var settings = app.ApplicationServices.GetRequiredService<MofSettings>();
         if (string.IsNullOrEmpty(settings.ApiPassword)) return app;
-        var expected = Encoding.UTF8.GetBytes(settings.ApiPassword);
         var tracker = app.ApplicationServices.GetRequiredService<AuthAttemptTracker>();
-        var sessions = app.ApplicationServices.GetRequiredService<AuthSessionStore>();
         return app.Use(async (context, next) =>
         {
             if (context.Request.Path.Equals(HealthPath, StringComparison.OrdinalIgnoreCase))
@@ -122,8 +100,7 @@ public static class ApiPassword
                 await TooManyAttemptsAsync(context, retryAfter);
                 return;
             }
-            if (IsAuthorized(context.Request, expected)
-                || sessions.IsValid(context.Request.Cookies[SessionCookieName]))
+            if (context.User.Identity?.IsAuthenticated == true)
             {
                 tracker.NoteSuccess(client);
                 await next();
@@ -154,11 +131,7 @@ public static class ApiPassword
                 await TooManyAttemptsAsync(context, retryAfter);
                 return;
             }
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.Headers.WWWAuthenticate = "Basic realm=\"MOF\", charset=\"UTF-8\"";
-            await context.Response.WriteAsJsonAsync(
-                new { title = "A password is required to use this service.", status = 401 },
-                cancellationToken: context.RequestAborted);
+            await context.ChallengeAsync(CombinedScheme);
         });
     }
 
@@ -217,6 +190,53 @@ public static class ApiPassword
         if (candidate is null) return false;
         var bytes = Encoding.UTF8.GetBytes(candidate);
         return CryptographicOperations.FixedTimeEquals(bytes, expected);
+    }
+}
+
+/// <summary>Authenticates the existing Basic, Bearer, and X-API-Key shared-password formats.</summary>
+public sealed class SharedPasswordHeaderAuthenticationHandler(
+    IOptionsMonitor<AuthenticationSchemeOptions> options,
+    ILoggerFactory logger,
+    UrlEncoder encoder)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+{
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        var password = Context.RequestServices.GetRequiredService<MofSettings>().ApiPassword;
+        if (!string.IsNullOrEmpty(password)
+            && ApiPassword.IsAuthorized(Request, Encoding.UTF8.GetBytes(password)))
+        {
+            var identity = new ClaimsIdentity(
+                [new Claim(ClaimTypes.Name, "shared-password")], Scheme.Name);
+            return Task.FromResult(AuthenticateResult.Success(
+                new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name)));
+        }
+
+        return Task.FromResult(AuthenticateResult.NoResult());
+    }
+}
+
+/// <summary>Combines the shared-password headers with ASP.NET Core's protected cookie handler.</summary>
+public sealed class CombinedAuthenticationHandler(
+    IOptionsMonitor<AuthenticationSchemeOptions> options,
+    ILoggerFactory logger,
+    UrlEncoder encoder)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+{
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        var header = await Context.AuthenticateAsync(ApiPassword.HeaderScheme);
+        if (header.Succeeded) return header;
+        return await Context.AuthenticateAsync(ApiPassword.CookieScheme);
+    }
+
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Response.StatusCode = StatusCodes.Status401Unauthorized;
+        Response.Headers.WWWAuthenticate = "Basic realm=\"MOF\", charset=\"UTF-8\"";
+        return Response.WriteAsJsonAsync(
+            new { title = "A password is required to use this service.", status = 401 },
+            cancellationToken: Context.RequestAborted);
     }
 }
 
