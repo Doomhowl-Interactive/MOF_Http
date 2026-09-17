@@ -10,22 +10,12 @@
     <main class="container min-vh-100 d-flex align-items-center justify-content-center py-4">
         <section class="card col-12 col-md-8 col-lg-6 col-xl-5 border-secondary bg-dark shadow-lg" aria-labelledby="login-title">
             <div class="card-body p-4 p-md-5">
-                <div class="d-flex align-items-center gap-3 mb-4 text-info small fw-bold text-uppercase">
-                    <span class="badge bg-dark border border-info rounded-3 text-info fs-5 p-3">MOF</span>
-                    <span>Ministry of Flat Http</span>
-                </div>
-                <h1 id="login-title" class="h2 mb-2">Welcome back</h1>
-                <p class="text-secondary mb-4">Enter the service password to open the OBJ unwrapper.</p>
-
                 <form id="login-form" action="/login" method="post">
                     <label class="form-label" for="password">Password</label>
                     <input id="password" class="form-control bg-dark text-light border-secondary" name="password" type="password" autocomplete="current-password" required autofocus>
                     <div id="status" class="alert alert-danger mt-3" role="alert" aria-live="polite" hidden></div>
                     <button id="submit-button" class="btn btn-info w-100 mt-3 fw-bold" type="submit">Continue</button>
                 </form>
-            </div>
-            <div class="card-footer border-secondary bg-dark px-4 px-md-5 py-3 text-secondary small">
-                Protected OBJ processing service
             </div>
         </section>
     </main>
